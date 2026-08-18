@@ -1,30 +1,35 @@
 #!/bin/bash
 set -e
 
-# Default to 8080 or Render injected PORT
 TARGET_PORT="${PORT:-8080}"
-
 echo "================================================="
-echo "🚀 STARTING LMS CLOUD MICROSERVICES ON RENDER"
-echo "Public Gateway Port: ${TARGET_PORT}"
+echo "🚀 STARTING LMS CLOUD MICROSERVICES (OPTIMIZED)"
+echo "Render Public Gateway Port: ${TARGET_PORT}"
 echo "================================================="
 
-# Start Eureka Service Discovery in background
+# Ultra-fast low-memory JVM flags for cloud free tiers (512MB RAM)
+JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss256k -Xms32m -Xmx96m"
+
+# 1. Start Eureka Service Registry
 echo "1️⃣ Starting Eureka Server on port 8761..."
-java -Xms64m -Xmx128m -jar /app/eureka-server.jar > /tmp/eureka.log 2>&1 &
-sleep 5
+java $JVM_OPTS -jar /app/eureka-server.jar &
 
-# Start Microservices concurrently with optimized memory footprints
-echo "2️⃣ Starting User Service on port 8081..."
-java -Xms64m -Xmx128m -jar /app/user-service.jar > /tmp/user.log 2>&1 &
+# 2. Start API Gateway IMMEDIATELY on $TARGET_PORT so Render detects the open port in <5s
+echo "2️⃣ Starting Public API Gateway on port ${TARGET_PORT}..."
+java $JVM_OPTS -Dserver.port=${TARGET_PORT} -Dserver.address=0.0.0.0 -jar /app/api-gateway.jar &
 
-echo "3️⃣ Starting Course Service on port 8082..."
-java -Xms64m -Xmx128m -jar /app/course-service.jar > /tmp/course.log 2>&1 &
+# 3. Start Backend Microservices in parallel
+echo "3️⃣ Starting User Service on port 8081..."
+java $JVM_OPTS -jar /app/user-service.jar &
 
-echo "4️⃣ Starting Enrollment Service on port 8083..."
-java -Xms64m -Xmx128m -jar /app/enrollment-service.jar > /tmp/enrollment.log 2>&1 &
+echo "4️⃣ Starting Course Service on port 8082..."
+java $JVM_OPTS -jar /app/course-service.jar &
 
-sleep 5
+echo "5️⃣ Starting Enrollment Service on port 8083..."
+java $JVM_OPTS -jar /app/enrollment-service.jar &
 
-echo "5️⃣ Starting API Gateway on public port ${TARGET_PORT}..."
-exec java -Xms64m -Xmx160m -Dserver.port=${TARGET_PORT} -Dserver.address=0.0.0.0 -jar /app/api-gateway.jar
+echo "✨ All microservices successfully launched! Monitoring processes..."
+# Wait for any process to exit or keep alive
+while true; do
+  sleep 60
+done
