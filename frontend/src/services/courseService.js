@@ -40,6 +40,44 @@ const courseService = {
     const response = await API.put(`/api/courses/${id}/publish`);
     return response.data;
   },
+
+  uploadFile: async (file, type = "general", onProgress = null) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("type", type);
+    const response = await API.post("/api/courses/upload", formData, {
+      headers: {
+        "Content-Type": undefined,
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return response.data;
+  },
+
+  uploadMultipleFiles: async (files, type = "general", onProgress = null) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append("files", files[i]);
+    }
+    formData.append("type", type);
+    const response = await API.post("/api/courses/upload-multiple", formData, {
+      headers: {
+        "Content-Type": undefined,
+      },
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent);
+        }
+      },
+    });
+    return response.data;
+  },
 };
 
 export default courseService;

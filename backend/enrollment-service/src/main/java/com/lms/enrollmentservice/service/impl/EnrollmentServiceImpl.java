@@ -58,20 +58,18 @@ public class EnrollmentServiceImpl implements EnrollmentService {
             throw new BadRequestException("Cannot enroll in an unpublished course");
         }
 
-        // Check for existing enrollment to reuse or prevent duplicates
+        // Check for existing enrollment to reuse or renew expired enrollment
         java.util.Optional<Enrollment> existingEnrollmentOpt = enrollmentRepository
                 .findByStudentIdAndCourseId(studentId, request.getCourseId());
 
         Enrollment savedEnrollment;
         if (existingEnrollmentOpt.isPresent()) {
             Enrollment existingEnrollment = existingEnrollmentOpt.get();
-            if (existingEnrollment.getStatus() == EnrollmentStatus.CANCELLED) {
-                existingEnrollment.setStatus(EnrollmentStatus.ACTIVE);
-                existingEnrollment.setProgressPercentage(0.0);
-                savedEnrollment = enrollmentRepository.save(existingEnrollment);
-            } else {
-                throw new DuplicateResourceException("Student is already enrolled in this course");
-            }
+            // Renew/Reactivate enrollment with fresh timestamp and progress reset
+            existingEnrollment.setStatus(EnrollmentStatus.ACTIVE);
+            existingEnrollment.setEnrolledAt(java.time.LocalDateTime.now());
+            existingEnrollment.setProgressPercentage(0.0);
+            savedEnrollment = enrollmentRepository.save(existingEnrollment);
         } else {
             Enrollment enrollment = Enrollment.builder()
                     .studentId(studentId)

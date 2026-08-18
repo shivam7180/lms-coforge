@@ -1,9 +1,15 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import authService from "../services/authService";
+import InstructorDashboard from "./InstructorDashboard";
 
 const Home = () => {
   const user = authService.getCurrentUser();
+
+  // If user is an Instructor, Home page directly belongs to their own uploaded courses!
+  if (user && user.role === "INSTRUCTOR") {
+    return <InstructorDashboard />;
+  }
 
   return (
     <div style={{ padding: "5rem 0" }} className="fade-in">

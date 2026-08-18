@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import enrollmentService from "../services/enrollmentService";
 import courseService from "../services/courseService";
 import authService from "../services/authService";
+import CourseMediaViewer from "../components/CourseMediaViewer";
+import { calculateDaysLeft } from "../utils/courseExpiry";
 
 const QUIZZES_DATA = {
   "Computer Science": [
@@ -160,8 +162,8 @@ const StudentDashboard = () => {
   const [quizScore, setQuizScore] = useState(0);
   const [quizSaving, setQuizSaving] = useState(false);
 
-  // Certificate State
-  const [activeCertificate, setActiveCertificate] = useState(null);
+  // Active Media & Notes Reader State (with active enrollment)
+  const [activeMediaSession, setActiveMediaSession] = useState(null);
 
   const loadData = async () => {
     try {
@@ -173,7 +175,10 @@ const StudentDashboard = () => {
         cmap[c.id] = c;
       });
 
-      setEnrollments(enrollData);
+      // Automatically remove any course deleted by instructor from student shelf
+      const validEnrollments = (enrollData || []).filter((e) => !!cmap[e.courseId]);
+
+      setEnrollments(validEnrollments);
       setCoursesMap(cmap);
       setLoading(false);
     } catch (err) {
@@ -187,39 +192,41 @@ const StudentDashboard = () => {
     loadData();
   }, []);
 
-  const handleUpdateProgress = async (id, overridePercentage = null) => {
-    const percentage = overridePercentage !== null ? overridePercentage : parseFloat(progressInput);
-    if (overridePercentage === null && (isNaN(percentage) || percentage < 0 || percentage > 100)) {
-      setError("Please enter a valid percentage between 0 and 100.");
-      return;
-    }
+  // Automatic Video Progress: Triggered ONLY when student completes watching video lectures
+  const handleAutoVideoCompleted = async (completedIdx, newProgressPercentage) => {
+    if (!activeMediaSession || !activeMediaSession.enrollment) return;
+    const currentEnrollment = activeMediaSession.enrollment;
+    
+    if (newProgressPercentage > (currentEnrollment.progressPercentage || 0)) {
+      try {
+        await enrollmentService.updateProgress(currentEnrollment.id, newProgressPercentage);
+        
+        // Update local enrollments list
+        setEnrollments((prev) =>
+          prev.map((e) =>
+            e.id === currentEnrollment.id
+              ? { ...e, progressPercentage: newProgressPercentage }
+              : e
+          )
+        );
 
-    try {
-      setError("");
-      setSuccess("");
-      await enrollmentService.updateProgress(id, percentage);
-      setSuccess("Reading progress updated successfully!");
-      setUpdatingId(null);
-      setProgressInput("");
-      loadData();
-    } catch (err) {
-      setError("Failed to update progress.");
-    }
-  };
+        setActiveMediaSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                enrollment: {
+                  ...prev.enrollment,
+                  progressPercentage: newProgressPercentage,
+                },
+              }
+            : null
+        );
 
-  const handleCancelEnrollment = async (id) => {
-    if (!window.confirm("Are you sure you want to cancel registration for this volume?")) {
-      return;
-    }
-
-    try {
-      setError("");
-      setSuccess("");
-      await enrollmentService.cancelEnrollment(id);
-      setSuccess("Volume registration returned to archive.");
-      loadData();
-    } catch (err) {
-      setError("Failed to cancel enrollment.");
+        setSuccess(`🎉 Lesson completed! Course progress updated to ${newProgressPercentage}%.`);
+        setTimeout(() => setSuccess(""), 4000);
+      } catch (err) {
+        console.error("Failed to auto-update progress", err);
+      }
     }
   };
 
@@ -259,9 +266,10 @@ const StudentDashboard = () => {
     if (!activeQuizEnrollment) return;
     setQuizSaving(true);
     try {
+      localStorage.setItem(`quiz_passed_${activeQuizEnrollment.id}`, "true");
       // Update progress in JPA database to 100% upon passing the quiz
       await enrollmentService.updateProgress(activeQuizEnrollment.id, 100);
-      setSuccess("Assessment passed! Certificate unlocked.");
+      setSuccess("🎉 Course Passed Successfully! You have scored 80%+ on the final assessment.");
       setActiveQuizEnrollment(null);
       setQuizFinished(false);
       loadData();
@@ -272,7 +280,28 @@ const StudentDashboard = () => {
     }
   };
 
-  const activeEnrollments = enrollments.filter(e => e.status === "ACTIVE");
+  // Active Bookshelf: Show active and unexpired enrollments, PLUS any completed courses (Permanent Lifetime Shelf Access!)
+  const activeEnrollments = enrollments.filter(e => {
+    if (e.status !== "ACTIVE") return false;
+    const course = coursesMap[e.courseId];
+    if (!course) return false; // If course was deleted by instructor, automatically remove from student shelf!
+    const isCompleted = (e.progressPercentage || 0) >= 100 || !!localStorage.getItem(`quiz_passed_${e.id}`);
+    if (isCompleted) return true; // Completed courses stay permanently on shelf!
+    const daysLeft = calculateDaysLeft(e, course);
+    return daysLeft === null || daysLeft >= 0;
+  });
+
+  // Expired Subscriptions: Only courses that expired BEFORE being completed
+  const expiredEnrollments = enrollments.filter(e => {
+    if (e.status !== "ACTIVE") return false;
+    const course = coursesMap[e.courseId];
+    if (!course) return false; // If course was deleted by instructor, do not show in expired list either!
+    const isCompleted = (e.progressPercentage || 0) >= 100 || !!localStorage.getItem(`quiz_passed_${e.id}`);
+    if (isCompleted) return false; // Completed courses NEVER expire!
+    const daysLeft = calculateDaysLeft(e, course);
+    return daysLeft !== null && daysLeft < 0;
+  });
+
   const inactiveEnrollments = enrollments.filter(e => e.status !== "ACTIVE");
 
   const getSpineColor = (category) => {
@@ -294,6 +323,20 @@ const StudentDashboard = () => {
     if (!activeQuizEnrollment) return [];
     const course = coursesMap[activeQuizEnrollment.courseId];
     if (!course) return QUIZZES_DATA["General"];
+    if (course.quizJson) {
+      try {
+        const customQuiz = JSON.parse(course.quizJson);
+        if (Array.isArray(customQuiz) && customQuiz.length > 0) {
+          return customQuiz.map((q) => ({
+            question: q.question,
+            options: q.options || [],
+            answer: q.correctIndex !== undefined ? q.correctIndex : (q.answer !== undefined ? q.answer : 0)
+          }));
+        }
+      } catch (e) {
+        console.error("Failed to parse custom quizJson", e);
+      }
+    }
     return QUIZZES_DATA[course.category] || QUIZZES_DATA["General"];
   };
 
@@ -373,15 +416,18 @@ const StudentDashboard = () => {
                         <h3 className="book-cover-title" style={{ fontSize: "1.25rem" }}>{course.title}</h3>
                       </div>
                       <div>
-                        <div className="book-cover-author">Reference Vol. #{enroll.courseId}</div>
+                        <div className="book-cover-author" style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                          <span>👨‍🏫</span>
+                          <span>{course.instructorName || "Lead Instructor"}</span>
+                        </div>
                       </div>
                     </div>
                   </Link>
 
-                  {/* Progress Info & Control */}
+                  {/* Progress Info & Expiration Control */}
                   <div className="reading-card" style={{ padding: "1.25rem", borderTop: "none", borderRadius: "0 0 var(--radius-md) var(--radius-md)", marginTop: "-1.5rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-                      <span>Chapters Read</span>
+                      <span>Chapters Read (Auto-tracked)</span>
                       <span style={{ color: "var(--text-main)" }}>{enroll.progressPercentage.toFixed(0)}%</span>
                     </div>
 
@@ -389,60 +435,156 @@ const StudentDashboard = () => {
                       <div className="reading-ribbon" style={{ width: `${enroll.progressPercentage}%` }} />
                     </div>
 
-                    {updatingId === enroll.id ? (
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          className="form-input"
-                          placeholder="%"
-                          style={{ flex: 1, padding: "0.4rem 0.5rem", fontSize: "0.8rem" }}
-                          value={progressInput}
-                          onChange={(e) => setProgressInput(e.target.value)}
-                        />
-                        <button onClick={() => handleUpdateProgress(enroll.id)} className="btn btn-primary btn-sm" style={{ padding: "0.4rem 0.75rem" }}>
-                          Save
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                      
+                      {/* Lecture Video & Notes Study Desk Button */}
+                      {(course.videoUrl || course.videosJson || course.notesUrl || course.notesJson || course.notesContent) && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveMediaSession({ course, enrollment: enroll })}
+                          className="btn btn-secondary btn-sm"
+                          style={{ width: "100%", padding: "0.45rem", fontSize: "0.8rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}
+                        >
+                          <span>▶️</span> Study Video & Notes
                         </button>
-                        <button onClick={() => setUpdatingId(null)} className="btn btn-secondary btn-sm" style={{ padding: "0.4rem 0.75rem" }}>
-                          X
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                        
-                        {/* Assessment / Certification buttons */}
-                        {hasFinishedCourse ? (
-                          <div style={{ display: "flex", gap: "0.5rem" }}>
-                            <button 
-                              onClick={() => setActiveCertificate(enroll)} 
-                              className="btn btn-success btn-sm" 
-                              style={{ flex: 1, padding: "0.45rem", fontSize: "0.8rem" }}
+                      )}
+
+                      {/* Assessment / Certification buttons with strict sequential gating */}
+                      {(() => {
+                        const isQuizPassed = !!localStorage.getItem(`quiz_passed_${enroll.id}`);
+                        const hasFinishedVideos = (enroll.progressPercentage || 0) >= 100;
+
+                        if (isQuizPassed) {
+                          return (
+                            <div 
+                              style={{ 
+                                width: "100%", 
+                                padding: "0.5rem 0.75rem", 
+                                backgroundColor: "rgba(46, 98, 60, 0.15)", 
+                                border: "1px solid rgba(46, 98, 60, 0.4)", 
+                                borderRadius: "var(--radius-sm)", 
+                                fontSize: "0.82rem", 
+                                color: "var(--success)", 
+                                fontWeight: "700", 
+                                display: "flex", 
+                                alignItems: "center", 
+                                justifyContent: "center", 
+                                gap: "0.4rem" 
+                              }}
                             >
-                              🎓 View Certificate
+                              <span>✅</span>
+                              <span>Course Passed Successfully (&gt;80%)</span>
+                            </div>
+                          );
+                        }
+
+                        if (hasFinishedVideos) {
+                          return (
+                            <button 
+                              type="button"
+                              onClick={() => handleLaunchQuiz(enroll)} 
+                              className="btn btn-primary btn-sm" 
+                              style={{ width: "100%", padding: "0.45rem", fontSize: "0.8rem", backgroundColor: "var(--warning)", color: "#000", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}
+                            >
+                              <span>📝</span> Take Course Quiz (Score &gt; 80% to Pass)
                             </button>
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={() => handleLaunchQuiz(enroll)} 
-                            className="btn btn-primary btn-sm" 
-                            style={{ width: "100%", padding: "0.45rem", fontSize: "0.8rem" }}
+                          );
+                        }
+
+                        return (
+                          <div 
+                            style={{ 
+                              padding: "0.45rem 0.65rem", 
+                              backgroundColor: "rgba(0,0,0,0.04)", 
+                              borderRadius: "var(--radius-sm)", 
+                              border: "1px dashed var(--border-color)", 
+                              fontSize: "0.74rem", 
+                              color: "var(--text-muted)", 
+                              display: "flex", 
+                              alignItems: "center", 
+                              gap: "0.35rem" 
+                            }}
+                            title="Complete watching all lecture videos to unlock the final course quiz"
                           >
-                            📝 Take Certification Quiz
-                          </button>
-                        )}
+                            <span>🔒</span>
+                            <span>Quiz locked (Watch all lecture videos first)</span>
+                          </div>
+                        );
+                      })()}
 
-                        <div style={{ display: "flex", gap: "0.5rem", justifyContent: "space-between", marginTop: "0.25rem", borderTop: "1px solid var(--border-color)", paddingTop: "0.5rem" }}>
-                          <button onClick={() => setUpdatingId(enroll.id)} className="btn btn-secondary btn-sm" style={{ flex: 1, padding: "0.35rem", fontSize: "0.75rem" }}>
-                            Manual Progress
-                          </button>
-                          <button onClick={() => handleCancelEnrollment(enroll.id)} className="btn btn-danger btn-sm" style={{ padding: "0.35rem", fontSize: "0.75rem" }}>
-                            Return
-                          </button>
-                        </div>
+                      {/* Days Left for Course Expiry Indicator / Permanent Access */}
+                      <div style={{ marginTop: "0.25rem", borderTop: "1px solid var(--border-color)", paddingTop: "0.5rem" }}>
+                        {(() => {
+                          const isCompleted = (enroll.progressPercentage || 0) >= 100 || !!localStorage.getItem(`quiz_passed_${enroll.id}`);
+                          if (isCompleted) {
+                            return (
+                              <div 
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: "0.35rem",
+                                  padding: "0.4rem 0.6rem",
+                                  backgroundColor: "rgba(46, 98, 60, 0.12)",
+                                  color: "var(--success)",
+                                  borderRadius: "var(--radius-sm)",
+                                  fontSize: "0.75rem",
+                                  fontWeight: "700",
+                                  border: "1px solid rgba(46, 98, 60, 0.25)"
+                                }}
+                              >
+                                <span>♾️</span>
+                                <span>Permanent Shelf Access (Completed)</span>
+                              </div>
+                            );
+                          }
 
+                          const daysLeft = calculateDaysLeft(enroll, course);
+                          if (daysLeft === null) return null;
+
+                          const isHealthy = daysLeft > 3;
+                          const isWarning = daysLeft >= 0 && daysLeft <= 3;
+                          
+                          return (
+                            <div 
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "0.35rem",
+                                padding: "0.4rem 0.6rem",
+                                backgroundColor: isHealthy 
+                                  ? "rgba(59, 130, 246, 0.12)" 
+                                  : isWarning 
+                                    ? "rgba(234, 179, 8, 0.15)" 
+                                    : "rgba(239, 68, 68, 0.15)",
+                                color: isHealthy 
+                                  ? "var(--primary)" 
+                                  : isWarning 
+                                    ? "#ca8a04" 
+                                    : "var(--danger)",
+                                borderRadius: "var(--radius-sm)",
+                                fontSize: "0.75rem",
+                                fontWeight: "700",
+                                border: `1px solid ${isHealthy ? "rgba(59, 130, 246, 0.25)" : isWarning ? "rgba(234, 179, 8, 0.3)" : "rgba(239, 68, 68, 0.3)"}`
+                              }}
+                            >
+                              <span>{daysLeft > 0 ? "⏳" : "🛑"}</span>
+                              <span>
+                                {daysLeft > 1
+                                  ? `${daysLeft} Days Left for Expiry`
+                                  : daysLeft === 1
+                                  ? `1 Day Left (Expires Tomorrow)`
+                                  : daysLeft === 0
+                                  ? `Expires Today`
+                                  : `Course Access Expired`}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
-                    )}
+
+                    </div>
                   </div>
 
                 </div>
@@ -451,7 +593,63 @@ const StudentDashboard = () => {
           </div>
         )}
 
-        {/* Section 2: Historical Archive Table */}
+        {/* Section 2: Expired Subscriptions & Re-Purchase */}
+        {expiredEnrollments.length > 0 && (
+          <div style={{ marginTop: "4rem" }}>
+            <h3 className="bookshelf-title" style={{ fontSize: "1.75rem" }}>
+              <span>Expired Course Volumes</span>
+              <Link to="/courses" style={{ fontSize: "0.85rem", color: "var(--primary)", fontWeight: "700", textDecoration: "none" }}>
+                Browse Catalog &rarr;
+              </Link>
+            </h3>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", fontStyle: "italic", marginBottom: "1.5rem" }}>
+              Subscription validity for these courses has expired. Re-purchase the volume from Explore Courses to restore full access to video lectures and study documents.
+            </p>
+            <div className="table-wrapper">
+              <table className="editorial-table">
+                <thead>
+                  <tr>
+                    <th>Volume ID</th>
+                    <th>Course Title</th>
+                    <th>Category</th>
+                    <th>Original Enrollment</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expiredEnrollments.map((enroll) => {
+                    const course = coursesMap[enroll.courseId] || {
+                      title: `Course #${enroll.courseId}`,
+                      category: "General Volume"
+                    };
+                    const daysAgo = Math.abs(calculateDaysLeft(enroll, course) || 0);
+                    return (
+                      <tr key={enroll.id}>
+                        <td style={{ fontWeight: "700" }}>Vol #{enroll.courseId}</td>
+                        <td style={{ fontWeight: "600" }}>{course.title}</td>
+                        <td>{course.category}</td>
+                        <td>{new Date(enroll.enrolledAt).toLocaleDateString()}</td>
+                        <td>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", padding: "0.25rem 0.5rem", borderRadius: "var(--radius-sm)", backgroundColor: "rgba(239, 68, 68, 0.12)", color: "var(--danger)", fontSize: "0.75rem", fontWeight: "700" }}>
+                            Expired ({daysAgo}d ago)
+                          </span>
+                        </td>
+                        <td>
+                          <Link to={`/courses/${enroll.courseId}`} className="btn btn-primary btn-sm" style={{ padding: "0.35rem 0.75rem", fontSize: "0.8rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                            <span>🔄</span> Re-Purchase Volume
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Section 3: Historical Archive Table */}
         <h3 className="bookshelf-title" style={{ fontSize: "1.75rem", marginTop: "4rem" }}>
           <span>Archive Return History</span>
         </h3>
@@ -571,165 +769,132 @@ const StudentDashboard = () => {
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
-                  {quizScore >= 4 ? (
-                    <div>
-                      <div style={{ width: "64px", height: "64px", borderRadius: "50%", backgroundColor: "#d1fae5", border: "2px solid #34d399", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem auto" }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#059669" style={{ width: "32px", height: "32px" }}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                      </div>
-                      <h3 style={{ color: "#065f46", fontSize: "1.5rem", fontWeight: "800", marginBottom: "0.5rem" }}>Assessment Passed!</h3>
-                      <p style={{ fontSize: "0.9rem", color: "#047857", marginBottom: "2rem" }}>
-                        You scored <strong>{quizScore} out of {questions.length}</strong> ({(quizScore / questions.length) * 100}%). This meets the scholastic standard of 80% to claim certificate.
-                      </p>
+              ) : (() => {
+                const passThreshold = Math.ceil(questions.length * 0.8);
+                const scorePercent = Math.round((quizScore / questions.length) * 100);
+                const isPassed = scorePercent >= 80 || quizScore >= passThreshold;
 
-                      <button
-                        onClick={handleSaveQuizPassed}
-                        disabled={quizSaving}
-                        className="btn btn-success"
-                        style={{ width: "100%", padding: "0.8rem", fontSize: "0.9rem" }}
-                      >
-                        {quizSaving ? "Saving progress..." : "Claim Certificate & Complete Course"}
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div style={{ width: "64px", height: "64px", borderRadius: "50%", backgroundColor: "#fee2e2", border: "2px solid #f87171", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem auto" }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#b91c1c" style={{ width: "32px", height: "32px" }}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </div>
-                      <h3 style={{ color: "#991b1b", fontSize: "1.5rem", fontWeight: "800", marginBottom: "0.5rem" }}>Scholastic Goal Not Met</h3>
-                      <p style={{ fontSize: "0.9rem", color: "#b91c1c", marginBottom: "2rem" }}>
-                        You scored <strong>{quizScore} out of {questions.length}</strong> ({(quizScore / questions.length) * 100}%). A minimum score of 80% (4 correct answers) is required to unlock certification.
-                      </p>
+                return (
+                  <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+                    {isPassed ? (
+                      <div>
+                        <div style={{ width: "64px", height: "64px", borderRadius: "50%", backgroundColor: "#d1fae5", border: "2px solid #34d399", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem auto" }}>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#059669" style={{ width: "32px", height: "32px" }}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                        </div>
+                        <h3 style={{ color: "#065f46", fontSize: "1.5rem", fontWeight: "800", marginBottom: "0.5rem" }}>Course Passed Successfully!</h3>
+                        <p style={{ fontSize: "0.9rem", color: "#047857", marginBottom: "2rem" }}>
+                          Congratulations! You scored <strong>{quizScore} out of {questions.length}</strong> ({scorePercent}%). You have successfully met the requirement of 80%+ to pass this course.
+                        </p>
 
-                      <div style={{ display: "flex", gap: "1rem" }}>
                         <button
-                          onClick={() => {
-                            setCurrentQuestionIdx(0);
-                            setSelectedAnswers({});
-                            setQuizFinished(false);
-                            setQuizScore(0);
-                          }}
-                          className="btn btn-primary"
-                          style={{ flex: 1, padding: "0.6rem", fontSize: "0.85rem" }}
+                          onClick={handleSaveQuizPassed}
+                          disabled={quizSaving}
+                          className="btn btn-success"
+                          style={{ width: "100%", padding: "0.8rem", fontSize: "0.9rem", fontWeight: "700" }}
                         >
-                          Retake Assessment
-                        </button>
-                        <button
-                          onClick={() => setActiveQuizEnrollment(null)}
-                          className="btn btn-secondary"
-                          style={{ flex: 1, padding: "0.6rem", fontSize: "0.85rem" }}
-                        >
-                          Back to Shelf
+                          {quizSaving ? "Saving progress..." : "✅ Confirm Course Completion"}
                         </button>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+                    ) : (
+                      <div>
+                        <div style={{ width: "64px", height: "64px", borderRadius: "50%", backgroundColor: "#fee2e2", border: "2px solid #f87171", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem auto" }}>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="#b91c1c" style={{ width: "32px", height: "32px" }}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </div>
+                        <h3 style={{ color: "#991b1b", fontSize: "1.5rem", fontWeight: "800", marginBottom: "0.5rem" }}>Course Not Passed</h3>
+                        <p style={{ fontSize: "0.9rem", color: "#b91c1c", marginBottom: "2rem" }}>
+                          You scored <strong>{quizScore} out of {questions.length}</strong> ({scorePercent}%). A minimum score of 80% ({passThreshold} correct answers) is required to successfully pass this course.
+                        </p>
 
-      {/* Printable Certificate Modal */}
-      {activeCertificate && (() => {
-        const course = coursesMap[activeCertificate.courseId] || {};
-        const formattedDate = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-        
-        return (
-          <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: "700px", padding: 0, border: "none", overflow: "hidden", borderRadius: "10px", backgroundColor: "#fff", color: "#1a1e26", fontFamily: "var(--font-sans)" }}>
-              
-              {/* Decorative Frame */}
-              <div style={{ padding: "3rem", border: "15px solid #eae5db", margin: "10px", position: "relative" }}>
-                
-                {/* Gold Seal Watermark background */}
-                <div style={{ position: "absolute", bottom: "20px", right: "20px", opacity: 0.15, pointerEvents: "none" }}>
-                  <svg width="150" height="150" viewBox="0 0 100 100" fill="var(--primary)">
-                    <circle cx="50" cy="50" r="40" stroke="var(--primary)" strokeWidth="3" fill="none" />
-                    <path d="M50 20 L60 80 L20 40 L80 40 L40 80 Z" />
-                  </svg>
-                </div>
-
-                <div style={{ textAlign: "center" }}>
-                  <span style={{ fontSize: "0.8rem", letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "700", color: "var(--text-muted)" }}>
-                    LMS Space Digital Library
-                  </span>
-                  
-                  <h2 style={{ fontSize: "2.2rem", fontWeight: "800", color: "var(--primary)", margin: "1.5rem 0", letterSpacing: "0.05em", borderBottom: "2px double var(--border-color)", paddingBottom: "1rem" }}>
-                    CERTIFICATE OF COMPLETION
-                  </h2>
-
-                  <p style={{ fontStyle: "italic", fontSize: "1.05rem", color: "var(--text-muted)", margin: "2rem 0" }}>
-                    This academic document certifies that the scholar
-                  </p>
-
-                  <h3 style={{ fontSize: "2.4rem", fontWeight: "800", color: "#000000", borderBottom: "1px solid var(--border-color)", display: "inline-block", padding: "0 2rem 0.5rem 2rem", margin: "0 auto 2rem auto" }}>
-                    {user.fullName}
-                  </h3>
-
-                  <p style={{ fontStyle: "italic", fontSize: "1.05rem", color: "var(--text-muted)", margin: "0 auto 2rem auto", maxWidth: "480px", lineHeight: "1.6" }}>
-                    has successfully satisfied all curriculum standards, reading requirements, and verified examinations for the course volume
-                  </p>
-
-                  <h4 style={{ fontSize: "1.45rem", fontWeight: "700", color: "var(--primary)", marginBottom: "2rem" }}>
-                    {course.title}
-                  </h4>
-
-                  <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "4rem" }}>
-                    Issued on this day: <strong>{formattedDate}</strong> <br/>
-                    Verification Hash ID: <code>LMS-CERT-{activeCertificate.id}-{activeCertificate.studentId}-{new Date().getFullYear()}</code>
-                  </p>
-
-                  {/* Signatures */}
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "0 2rem", marginTop: "3rem" }}>
-                    <div style={{ textAlign: "center", width: "150px" }}>
-                      <div style={{ borderBottom: "1px solid #1a1e26", height: "30px", fontStyle: "italic", fontSize: "1.1rem", fontFamily: "cursive", color: "var(--primary)" }}>
-                        Shivam S.
+                        <div style={{ display: "flex", gap: "1rem" }}>
+                          <button
+                            onClick={() => {
+                              setCurrentQuestionIdx(0);
+                              setSelectedAnswers({});
+                              setQuizFinished(false);
+                              setQuizScore(0);
+                            }}
+                            className="btn btn-primary"
+                            style={{ flex: 1, padding: "0.6rem", fontSize: "0.85rem" }}
+                          >
+                            🔄 Retake Assessment Quiz
+                          </button>
+                          <button
+                            onClick={() => setActiveQuizEnrollment(null)}
+                            className="btn btn-secondary"
+                            style={{ flex: 1, padding: "0.6rem", fontSize: "0.85rem" }}
+                          >
+                            Back to Shelf
+                          </button>
+                        </div>
                       </div>
-                      <span style={{ fontSize: "0.7rem", textTransform: "uppercase", fontWeight: "700", color: "var(--text-muted)", display: "block", marginTop: "0.25rem" }}>
-                        Chancellor, LMS
-                      </span>
-                    </div>
-
-                    <div style={{ textAlign: "center", width: "150px" }}>
-                      <div style={{ borderBottom: "1px solid #1a1e26", height: "30px", fontStyle: "italic", fontSize: "1.1rem", fontFamily: "cursive", color: "var(--primary)" }}>
-                        Academic Board
-                      </div>
-                      <span style={{ fontSize: "0.7rem", textTransform: "uppercase", fontWeight: "700", color: "var(--text-muted)", display: "block", marginTop: "0.25rem" }}>
-                        Dean of Studies
-                      </span>
-                    </div>
+                    )}
                   </div>
-                </div>
-
-              </div>
-
-              {/* Action options */}
-              <div style={{ display: "flex", borderTop: "1px solid #cbd5e1" }}>
-                <button
-                  onClick={() => window.print()}
-                  style={{ flex: 1, padding: "1rem", border: "none", backgroundColor: "#f8fafc", color: "var(--text-main)", cursor: "pointer", fontWeight: "700", borderRight: "1px solid #cbd5e1" }}
-                >
-                  🖨️ Print / Download PDF
-                </button>
-                <button
-                  onClick={() => setActiveCertificate(null)}
-                  style={{ flex: 1, padding: "1rem", border: "none", backgroundColor: "#ffffff", color: "var(--danger)", cursor: "pointer", fontWeight: "700" }}
-                >
-                  Close Document
-                </button>
-              </div>
-
+                );
+              })()}
             </div>
           </div>
         );
       })()}
+
+      {/* Student Study Media & Notes Modal with Auto-Progress */}
+      {activeMediaSession && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          backgroundColor: "rgba(0, 0, 0, 0.65)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: "1.5rem"
+        }}>
+          <div className="reading-card" style={{
+            width: "100%",
+            maxWidth: "850px",
+            maxHeight: "90vh",
+            overflowY: "auto",
+            padding: "2rem",
+            position: "relative"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "1rem", marginBottom: "1.5rem" }}>
+              <div>
+                <span className="editorial-title-badge">Student Study Desk</span>
+                <h3 style={{ margin: "0.25rem 0 0 0", fontFamily: "var(--font-serif)" }}>{activeMediaSession.course.title}</h3>
+                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                  Current Progress: <strong style={{ color: "var(--primary)" }}>{(activeMediaSession.enrollment?.progressPercentage || 0).toFixed(0)}%</strong> &middot; Completing videos will automatically increment progress.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMediaSession(null)}
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: "1.1rem", padding: "0.25rem 0.75rem" }}
+              >
+                &times; Close Desk
+              </button>
+            </div>
+
+            <CourseMediaViewer
+              videoUrl={activeMediaSession.course.videoUrl}
+              videosJson={activeMediaSession.course.videosJson}
+              notesUrl={activeMediaSession.course.notesUrl}
+              notesJson={activeMediaSession.course.notesJson}
+              notesContent={activeMediaSession.course.notesContent}
+              title={activeMediaSession.course.title}
+              enrollmentId={activeMediaSession.enrollment?.id}
+              onVideoCompleted={handleAutoVideoCompleted}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -114,16 +114,22 @@ const Login = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} autoComplete="off" autoCapitalize="off" spellCheck="false">
+            {/* Decoy fields to consume aggressive browser autofill */}
+            <input type="text" name="chrome_login_decoy_user" style={{ display: "none" }} tabIndex="-1" autoComplete="off" />
+            <input type="password" name="chrome_login_decoy_pwd" style={{ display: "none" }} tabIndex="-1" autoComplete="new-password" />
+
             <div className="form-group">
               <label className="form-label" htmlFor="email">Email / Register</label>
               <input
                 type="email"
                 id="email"
+                name="user_auth_email"
                 className="form-input"
                 placeholder="email@lms.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="off"
                 required
               />
             </div>
@@ -133,10 +139,12 @@ const Login = () => {
               <input
                 type="password"
                 id="password"
+                name="user_auth_passcode"
                 className="form-input"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
                 required
               />
             </div>

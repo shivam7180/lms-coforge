@@ -24,4 +24,22 @@ public class CourseRequest {
     @NotNull(message = "Price is required")
     @DecimalMin(value = "0.0", message = "Price must be positive or zero")
     private BigDecimal price;
+
+    private String instructorName;
+
+    private String duration;
+
+    private String videoUrl;
+
+    private String notesUrl;
+
+    private String notesContent;
+
+    private String notesJson;
+
+    private String videosJson;
+
+    private String tableOfContents;
+
+    private String quizJson;
 }

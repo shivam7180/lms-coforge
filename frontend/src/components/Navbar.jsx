@@ -40,12 +40,14 @@ const Navbar = () => {
         </Link>
 
         <ul className="nav-links">
-          {/* Public links */}
-          <li>
-            <Link to="/" className={isActive("/")}>
-              Home
-            </Link>
-          </li>
+          {/* Public / Student / Admin home link */}
+          {(!user || user.role !== "INSTRUCTOR") && (
+            <li>
+              <Link to="/" className={isActive("/")}>
+                Home
+              </Link>
+            </li>
+          )}
 
           {/* Guest only links */}
           {!user && (
@@ -88,8 +90,8 @@ const Navbar = () => {
           {user && user.role === "INSTRUCTOR" && (
             <>
               <li>
-                <Link to="/instructor/dashboard" className={isActive("/instructor/dashboard")}>
-                  Instructor Board
+                <Link to="/instructor/dashboard" className={location.pathname === "/" || location.pathname === "/instructor/dashboard" ? "nav-link active" : "nav-link"}>
+                  My Published Courses
                 </Link>
               </li>
               <li>

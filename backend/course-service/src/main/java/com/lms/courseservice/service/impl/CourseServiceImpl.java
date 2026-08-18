@@ -32,7 +32,16 @@ public class CourseServiceImpl implements CourseService {
                 .description(request.getDescription())
                 .category(request.getCategory())
                 .instructorId(instructorId)
+                .instructorName(request.getInstructorName())
                 .price(request.getPrice())
+                .duration(request.getDuration())
+                .videoUrl(request.getVideoUrl())
+                .notesUrl(request.getNotesUrl())
+                .notesContent(request.getNotesContent())
+                .notesJson(request.getNotesJson())
+                .videosJson(request.getVideosJson())
+                .tableOfContents(request.getTableOfContents())
+                .quizJson(request.getQuizJson())
                 .published(false)
                 .build();
 
@@ -78,7 +87,18 @@ public class CourseServiceImpl implements CourseService {
         course.setTitle(request.getTitle());
         course.setDescription(request.getDescription());
         course.setCategory(request.getCategory());
+        if (request.getInstructorName() != null && !request.getInstructorName().trim().isEmpty()) {
+            course.setInstructorName(request.getInstructorName().trim());
+        }
         course.setPrice(request.getPrice());
+        course.setDuration(request.getDuration());
+        course.setVideoUrl(request.getVideoUrl());
+        course.setNotesUrl(request.getNotesUrl());
+        course.setNotesContent(request.getNotesContent());
+        course.setNotesJson(request.getNotesJson());
+        course.setVideosJson(request.getVideosJson());
+        course.setTableOfContents(request.getTableOfContents());
+        course.setQuizJson(request.getQuizJson());
 
         Course updatedCourse = courseRepository.save(course);
         return mapToResponse(updatedCourse);
@@ -125,8 +145,17 @@ public class CourseServiceImpl implements CourseService {
                 .description(course.getDescription())
                 .category(course.getCategory())
                 .instructorId(course.getInstructorId())
+                .instructorName(course.getInstructorName())
                 .price(course.getPrice())
+                .duration(course.getDuration())
                 .published(course.getPublished())
+                .videoUrl(course.getVideoUrl())
+                .notesUrl(course.getNotesUrl())
+                .notesContent(course.getNotesContent())
+                .notesJson(course.getNotesJson())
+                .videosJson(course.getVideosJson())
+                .tableOfContents(course.getTableOfContents())
+                .quizJson(course.getQuizJson())
                 .createdAt(course.getCreatedAt())
                 .updatedAt(course.getUpdatedAt())
                 .build();

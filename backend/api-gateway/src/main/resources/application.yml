@@ -4,8 +4,13 @@ server:
 spring:
   application:
     name: api-gateway
+  codec:
+    max-in-memory-size: 5000MB
   cloud:
     gateway:
+      httpclient:
+        connect-timeout: 30000
+        response-timeout: 300s
       discovery:
         locator:
           enabled: false
@@ -31,6 +36,7 @@ spring:
           '[/**]':
             allowedOrigins:
               - "http://localhost:5173"
+              - "http://localhost:5175"
               - "http://localhost:3000"
             allowedMethods:
               - GET

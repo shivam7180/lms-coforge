@@ -31,11 +31,36 @@ public class Course {
     @Column(nullable = false)
     private Long instructorId;
 
+    private String instructorName;
+
     @Column(precision = 10, scale = 2)
     private BigDecimal price;
 
+    private String duration;
+
     @Builder.Default
     private Boolean published = false;
+
+    @Column(columnDefinition = "TEXT")
+    private String videoUrl;
+
+    @Column(columnDefinition = "TEXT")
+    private String notesUrl;
+
+    @Column(columnDefinition = "LONGTEXT")
+    private String notesContent;
+
+    @Column(columnDefinition = "LONGTEXT")
+    private String notesJson;
+
+    @Column(columnDefinition = "LONGTEXT")
+    private String videosJson;
+
+    @Column(columnDefinition = "LONGTEXT")
+    private String tableOfContents;
+
+    @Column(columnDefinition = "LONGTEXT")
+    private String quizJson;
 
     @CreationTimestamp
     @Column(updatable = false)

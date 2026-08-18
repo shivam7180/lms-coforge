@@ -104,16 +104,22 @@ const Register = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} autoComplete="off" autoCapitalize="off" spellCheck="false">
+            {/* Decoy fields to consume aggressive browser autofill */}
+            <input type="text" name="chrome_decoy_user" style={{ display: "none" }} tabIndex="-1" autoComplete="off" />
+            <input type="password" name="chrome_decoy_pwd" style={{ display: "none" }} tabIndex="-1" autoComplete="new-password" />
+
             <div className="form-group">
               <label className="form-label" htmlFor="fullName">Full Name *</label>
               <input
                 type="text"
                 id="fullName"
+                name="reg_user_fullname"
                 className="form-input"
                 placeholder="John Doe"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                autoComplete="off"
                 required
               />
             </div>
@@ -123,10 +129,12 @@ const Register = () => {
               <input
                 type="email"
                 id="email"
+                name="reg_user_email"
                 className="form-input"
                 placeholder="student@lms.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="off"
                 required
               />
             </div>
@@ -136,10 +144,12 @@ const Register = () => {
               <input
                 type="password"
                 id="password"
+                name="reg_user_password"
                 className="form-input"
                 placeholder="Choose a secure key"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
                 required
               />
             </div>

@@ -1,30 +1,115 @@
-# Compiled files
+# =================================================================
+# LMS Platform - Git Ignore Configuration
+# =================================================================
+
+# -----------------------------------------------------------------
+# 1. Environment & Sensitive Credentials
+# -----------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!*.env.example
+application-secret.properties
+application-secret.yml
+*.pem
+*.key
+*.p12
+
+# -----------------------------------------------------------------
+# 2. Uploaded Media & Files (Prevent huge binary/video uploads to Git)
+# -----------------------------------------------------------------
+uploads/
+**/uploads/
+backend/course-service/uploads/
+backend/**/uploads/
+temp_test_lessons/
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
+*.pdf
+*.docx
+!README.md
+!*.md
+
+# -----------------------------------------------------------------
+# 3. Java, Maven & Spring Boot Artifacts
+# -----------------------------------------------------------------
 target/
+**/target/
 *.class
-
-# IDE
-.idea/
-*.iml
-.vscode/
-*.swp
-*.swo
-
-# Maven
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
 .mvn/
 mvnw
 mvnw.cmd
 
-# Node
+# -----------------------------------------------------------------
+# 4. Node.js & Frontend Build Outputs
+# -----------------------------------------------------------------
+/package-lock.json
 node_modules/
+**/node_modules/
 dist/
+**/dist/
+dist-ssr/
 build/
-.env
-.env.local
+**/build/
+.vite/
+**/.vite/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# OS
+# -----------------------------------------------------------------
+# 5. IDE & Code Editors
+# -----------------------------------------------------------------
+.idea/
+**/.idea/
+*.iml
+**/*.iml
+.vscode/
+**/.vscode/
+*.ipr
+*.iws
+.settings/
+**/.settings/
+.project
+**/.project
+.classpath
+**/.classpath
+*.swp
+*.swo
+*~
+
+# -----------------------------------------------------------------
+# 6. Operating System Files
+# -----------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Logs
-*.log
+# -----------------------------------------------------------------
+# 7. Logs & Temporary Files
+# -----------------------------------------------------------------
 logs/
+**/logs/
+*.log
+*.tmp
+*.temp

@@ -27,7 +27,7 @@ public class Enrollment {
     private Long courseId;
 
     @CreationTimestamp
-    @Column(updatable = false)
+    @Column(nullable = false)
     private LocalDateTime enrolledAt;
 
     @Enumerated(EnumType.STRING)

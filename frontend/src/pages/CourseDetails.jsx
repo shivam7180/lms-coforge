@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import courseService from "../services/courseService";
 import enrollmentService from "../services/enrollmentService";
 import authService from "../services/authService";
+import CourseMediaViewer from "../components/CourseMediaViewer";
+import { calculateDaysLeft } from "../utils/courseExpiry";
 
 const CourseDetails = () => {
   const { id } = useParams();
@@ -12,6 +14,8 @@ const CourseDetails = () => {
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [enrollmentStatus, setEnrollmentStatus] = useState(null); // null, 'ACTIVE', 'CANCELLED'
+  const [activeEnrollmentId, setActiveEnrollmentId] = useState(null);
+  const [activeEnrollment, setActiveEnrollment] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
   const [error, setError] = useState("");
 
@@ -36,10 +40,13 @@ const CourseDetails = () => {
         setCourse(courseData);
 
         if (user && user.role === "STUDENT") {
-          const studentEnrollments = await enrollmentService.getEnrollmentsByStudent(user.userId);
+          const studentId = user.userId || user.id;
+          const studentEnrollments = await enrollmentService.getEnrollmentsByStudent(studentId);
           const currentEnrollment = studentEnrollments.find((e) => e.courseId === parseInt(id));
           if (currentEnrollment) {
             setEnrollmentStatus(currentEnrollment.status);
+            setActiveEnrollmentId(currentEnrollment.id);
+            setActiveEnrollment(currentEnrollment);
           }
         }
         setLoading(false);
@@ -51,6 +58,15 @@ const CourseDetails = () => {
     };
     fetchCourseAndEnrollments();
   }, [id, user]);
+
+  const handleAutoVideoCompleted = async (completedIdx, newProgressPercentage) => {
+    if (!activeEnrollmentId) return;
+    try {
+      await enrollmentService.updateProgress(activeEnrollmentId, newProgressPercentage);
+    } catch (e) {
+      console.error("Auto progress update failed on course details", e);
+    }
+  };
 
   const executeEnrollment = async () => {
     setEnrolling(true);
@@ -132,7 +148,9 @@ const CourseDetails = () => {
         <div className="reading-card text-center" style={{ maxWidth: "600px", margin: "0 auto" }}>
           <h2 style={{ color: "var(--danger)" }}>Error</h2>
           <p>{error}</p>
-          <Link to="/courses" className="btn btn-secondary mt-4">Back to Courses</Link>
+          <Link to={user?.role === "INSTRUCTOR" ? "/instructor/dashboard" : "/courses"} className="btn btn-secondary mt-4">
+            {user?.role === "INSTRUCTOR" ? "Back to My Courses" : "Back to Courses"}
+          </Link>
         </div>
       </div>
     );
@@ -141,9 +159,24 @@ const CourseDetails = () => {
   return (
     <div style={{ padding: "4rem 0" }} className="fade-in">
       <div className="container" style={{ maxWidth: "1000px" }}>
-        <Link to="/courses" style={{ color: "var(--text-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "2.5rem", fontWeight: "600", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          &larr; Return to Library Index
-        </Link>
+        {/* Smart Role-Aware Back Navigation */}
+        {user?.role === "INSTRUCTOR" ? (
+          <Link to="/instructor/dashboard" style={{ color: "var(--text-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "2.5rem", fontWeight: "600", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            &larr; Back to My Uploaded Courses (Instructor Workspace)
+          </Link>
+        ) : user?.role === "STUDENT" ? (
+          <Link to="/student/dashboard" style={{ color: "var(--text-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "2.5rem", fontWeight: "600", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            &larr; Back to Student Workspace
+          </Link>
+        ) : user?.role === "ADMIN" ? (
+          <Link to="/admin/dashboard" style={{ color: "var(--text-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "2.5rem", fontWeight: "600", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            &larr; Back to Admin Panel
+          </Link>
+        ) : (
+          <Link to="/courses" style={{ color: "var(--text-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "2.5rem", fontWeight: "600", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            &larr; Return to Library Index
+          </Link>
+        )}
 
         {error && (
           <div style={{ backgroundColor: "rgba(185, 28, 28, 0.12)", color: "var(--danger)", padding: "0.75rem 1.25rem", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", marginBottom: "1.5rem", border: "1px solid rgba(185, 28, 28, 0.3)" }}>
@@ -161,20 +194,126 @@ const CourseDetails = () => {
               {course.title}
             </h1>
             
-            <div style={{ display: "flex", gap: "1.5rem", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "1.5rem", marginBottom: "2rem" }}>
-              <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
-                Author / Instructor ID: <strong style={{ color: "var(--text-main)" }}>#{course.instructorId}</strong>
+            <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--border-color)", paddingBottom: "1.5rem", marginBottom: "2rem" }}>
+              <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                <span>👨‍🏫</span> Instructor: <strong style={{ color: "var(--text-main)" }}>{course.instructorName || "Lead Instructor"}</strong>
               </span>
               <span style={{ color: "var(--border-color)" }}>|</span>
               <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
                 Catalog Reference: <strong style={{ color: "var(--text-main)" }}>LMS-{course.id}</strong>
               </span>
+              {course.duration && (
+                <>
+                  <span style={{ color: "var(--border-color)" }}>|</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", backgroundColor: "rgba(59, 130, 246, 0.1)", color: "var(--primary)", padding: "0.25rem 0.65rem", borderRadius: "var(--radius-sm)", fontWeight: "600", fontSize: "0.85rem" }}>
+                    <span>⏱️</span> {course.duration}
+                  </span>
+                </>
+              )}
             </div>
 
             <h3 style={{ fontSize: "1.8rem", marginBottom: "1rem" }}>Abstract Overview</h3>
-            <p style={{ fontSize: "1.1rem", lineHeight: "1.8", color: "var(--text-main)", marginBottom: "3rem", textAlign: "justify" }}>
+            <p style={{ fontSize: "1.1rem", lineHeight: "1.8", color: "var(--text-main)", marginBottom: "2.5rem", textAlign: "justify" }}>
               {course.description}
             </p>
+
+            {/* Course Video Lecture & Study Notes Section (Accessible to Instructors/Admins and Enrolled Students) */}
+            {(() => {
+              const isInstructorOrAdmin = user && (user.role === "INSTRUCTOR" || user.role === "ADMIN");
+              const isStudent = user && user.role === "STUDENT";
+              const isCompleted = (activeEnrollment?.progressPercentage || 0) >= 100 || (activeEnrollment && !!localStorage.getItem(`quiz_passed_${activeEnrollment.id}`));
+              const daysLeft = calculateDaysLeft(activeEnrollment, course);
+              const isExpired = isStudent && activeEnrollment && !isCompleted && daysLeft !== null && daysLeft < 0;
+              const isAccessValid = isStudent && ((enrollmentStatus === "ACTIVE" && !isExpired) || isCompleted);
+
+              const hasMediaAccess = isInstructorOrAdmin || isAccessValid;
+
+              if (hasMediaAccess && (course.videoUrl || course.notesUrl || course.notesContent || course.videosJson || course.notesJson)) {
+                return (
+                  <div style={{ marginBottom: "3rem" }}>
+                    <h3 style={{ fontSize: "1.8rem", marginBottom: "1.25rem", borderBottom: "1px solid var(--border-color)", paddingBottom: "0.5rem" }}>
+                      Course Media & Study Notes
+                    </h3>
+                    <CourseMediaViewer
+                      videoUrl={course.videoUrl}
+                      videosJson={course.videosJson}
+                      notesUrl={course.notesUrl}
+                      notesJson={course.notesJson}
+                      notesContent={course.notesContent}
+                      title={course.title}
+                      enrollmentId={activeEnrollmentId}
+                      onVideoCompleted={handleAutoVideoCompleted}
+                    />
+                  </div>
+                );
+              }
+
+              // If course subscription expired: show clean expired banner with re-purchase prompt
+              if (isExpired) {
+                return (
+                  <div 
+                    style={{
+                      marginBottom: "3rem",
+                      padding: "2.25rem 1.5rem",
+                      backgroundColor: "rgba(239, 68, 68, 0.05)",
+                      borderRadius: "var(--radius-md)",
+                      border: "1px dashed rgba(239, 68, 68, 0.4)",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      textAlign: "center",
+                      gap: "0.75rem"
+                    }}
+                  >
+                    <span style={{ fontSize: "2.5rem" }}>🛑</span>
+                    <h4 style={{ margin: 0, fontSize: "1.2rem", fontFamily: "var(--font-serif)", fontWeight: "600", color: "var(--danger)" }}>
+                      Course Subscription Expired
+                    </h4>
+                    <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.9rem", maxWidth: "520px" }}>
+                      Your previous subscription validity for this volume has ended ({Math.abs(daysLeft)} days ago). Re-purchase this course to restore full access to the video lectures and attached study notes.
+                    </p>
+                    <button onClick={handleEnrollClick} className="btn btn-primary btn-sm" style={{ marginTop: "0.5rem" }} disabled={enrolling}>
+                      {enrolling ? "Processing..." : `🔄 Re-Purchase (₹${course.price.toFixed(2)}) & Unlock`}
+                    </button>
+                  </div>
+                );
+              }
+
+              // Before purchase: show clean locked banner (no videos or notes played)
+              return (
+                <div 
+                  style={{
+                    marginBottom: "3rem",
+                    padding: "2.25rem 1.5rem",
+                    backgroundColor: "var(--bg-secondary)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px dashed var(--border-color)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    textAlign: "center",
+                    gap: "0.75rem"
+                  }}
+                >
+                  <span style={{ fontSize: "2.5rem" }}>🔒</span>
+                  <h4 style={{ margin: 0, fontSize: "1.2rem", fontFamily: "var(--font-serif)", fontWeight: "600" }}>
+                    Course Videos & Study Notes Locked
+                  </h4>
+                  <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.9rem", maxWidth: "520px" }}>
+                    Enroll in this course volume to unlock complete access to the video lectures, attached study notes, and chapter assessment quizzes.
+                  </p>
+                  {!user ? (
+                    <Link to="/login" className="btn btn-primary btn-sm" style={{ marginTop: "0.5rem" }}>
+                      Sign In to Enroll & Unlock
+                    </Link>
+                  ) : user.role === "STUDENT" && (
+                    <button onClick={handleEnrollClick} className="btn btn-primary btn-sm" style={{ marginTop: "0.5rem" }} disabled={enrolling}>
+                      {enrolling ? "Registering..." : `Enroll Now (₹${course.price.toFixed(2)}) & Unlock`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Structured Table of Contents (Syllabus) */}
             <div style={{ marginTop: "3.5rem" }}>
@@ -182,34 +321,46 @@ const CourseDetails = () => {
                 Table of Contents
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: "1.3rem", color: "var(--primary)", width: "30px", fontWeight: "700" }}>01</span>
-                  <div>
-                    <h4 style={{ fontWeight: "700", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Foundational Domain Concepts</h4>
-                    <p style={{ fontSize: "0.85rem", margin: "0.25rem 0 0 0", color: "var(--text-muted)" }}>Core definitions, glossary definitions, and context of the learning platform.</p>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: "1.3rem", color: "var(--primary)", width: "30px", fontWeight: "700" }}>02</span>
-                  <div>
-                    <h4 style={{ fontWeight: "700", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Architecture & System Feasibility</h4>
-                    <p style={{ fontSize: "0.85rem", margin: "0.25rem 0 0 0", color: "var(--text-muted)" }}>Deep-dive analysis of structure, modules validation, and schema layout.</p>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: "1.3rem", color: "var(--primary)", width: "30px", fontWeight: "700" }}>03</span>
-                  <div>
-                    <h4 style={{ fontWeight: "700", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Implementation & Practical Case Studies</h4>
-                    <p style={{ fontSize: "0.85rem", margin: "0.25rem 0 0 0", color: "var(--text-muted)" }}>Hands-on tasks, review, and integration tests to verify code blocks.</p>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: "1.3rem", color: "var(--primary)", width: "30px", fontWeight: "700" }}>04</span>
-                  <div>
-                    <h4 style={{ fontWeight: "700", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Summary Review & Archive Validation</h4>
-                    <p style={{ fontSize: "0.85rem", margin: "0.25rem 0 0 0", color: "var(--text-muted)" }}>Graduation tasks and review of completed files in the digital shell.</p>
-                  </div>
-                </div>
+                {(() => {
+                  let chaptersToRender = [];
+
+                  if (course.tableOfContents) {
+                    try {
+                      const parsed = JSON.parse(course.tableOfContents);
+                      if (Array.isArray(parsed) && parsed.length > 0) {
+                        chaptersToRender = parsed.filter(ch => ch.title && ch.title.trim().length > 0);
+                      }
+                    } catch (e) {
+                      // fallback
+                    }
+                  }
+
+                  if (chaptersToRender.length === 0) {
+                    return (
+                      <div style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: "0.9rem", padding: "1rem 0" }}>
+                        No specific syllabus chapters outlined for this course volume.
+                      </div>
+                    );
+                  }
+
+                  return chaptersToRender.map((ch, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
+                      <span style={{ fontSize: "1.3rem", color: "var(--primary)", width: "30px", fontWeight: "700" }}>
+                        {ch.chapterNumber || (idx + 1).toString().padStart(2, "0")}
+                      </span>
+                      <div>
+                        <h4 style={{ fontWeight: "700", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
+                          {ch.title}
+                        </h4>
+                        {ch.description && (
+                          <p style={{ fontSize: "0.85rem", margin: "0.25rem 0 0 0", color: "var(--text-muted)" }}>
+                            {ch.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
           </div>
@@ -239,44 +390,98 @@ const CourseDetails = () => {
                 <span style={{ display: "block", fontSize: "0.8rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
                   Tuition Value
                 </span>
-                <span style={{ fontSize: "2.2rem", fontWeight: "700", color: "var(--text-main)", display: "block", marginBottom: "1.5rem" }}>
+                <span style={{ fontSize: "2.2rem", fontWeight: "700", color: "var(--text-main)", display: "block", marginBottom: "0.5rem" }}>
                   ₹{course.price.toFixed(2)}
                 </span>
+                {course.duration && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1.5rem" }}>
+                    <span>⏱️</span> Estimated Duration: <strong style={{ color: "var(--text-main)" }}>{course.duration}</strong>
+                  </div>
+                )}
+                {!course.duration && <div style={{ marginBottom: "1.25rem" }} />}
 
                 {/* Enrollment Action Buttons */}
-                {!user ? (
-                  <Link to="/login" className="btn btn-primary" style={{ width: "100%" }}>Sign In to Enroll</Link>
-                ) : user.role === "STUDENT" ? (
-                  enrollmentStatus === "ACTIVE" ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                      <span className="badge badge-active" style={{ justifyContent: "center", padding: "0.5rem 1rem", fontSize: "0.8rem" }}>
-                        Currently Registered
-                      </span>
-                      <Link to="/student/dashboard" className="btn btn-secondary" style={{ width: "100%" }}>Open Personal Shelf</Link>
-                    </div>
-                  ) : enrollmentStatus === "CANCELLED" ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                      <span className="badge badge-cancelled" style={{ justifyContent: "center", padding: "0.5rem 1rem", fontSize: "0.8rem" }}>
-                        Enrollment Cancelled
-                      </span>
+                {(() => {
+                  if (!user) {
+                    return <Link to="/login" className="btn btn-primary" style={{ width: "100%" }}>Sign In to Enroll</Link>;
+                  }
+
+                  if (user.role === "STUDENT") {
+                    const isCompleted = (activeEnrollment?.progressPercentage || 0) >= 100 || (activeEnrollment && !!localStorage.getItem(`quiz_passed_${activeEnrollment.id}`));
+                    const daysLeft = calculateDaysLeft(activeEnrollment, course);
+                    const isExpired = activeEnrollment && !isCompleted && daysLeft !== null && daysLeft < 0;
+
+                    if (isExpired) {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem", padding: "0.5rem 1rem", borderRadius: "var(--radius-sm)", backgroundColor: "rgba(239, 68, 68, 0.15)", color: "var(--danger)", fontSize: "0.8rem", fontWeight: "700", border: "1px solid rgba(239, 68, 68, 0.3)" }}>
+                            ⚠️ Access Expired ({Math.abs(daysLeft)}d ago)
+                          </span>
+                          <button onClick={handleEnrollClick} className="btn btn-primary" style={{ width: "100%" }} disabled={enrolling}>
+                            {enrolling ? "Processing..." : `🔄 Re-Purchase Volume (₹${course.price.toFixed(2)})`}
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    if (enrollmentStatus === "ACTIVE" || isCompleted) {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                          <span className="badge badge-active" style={{ justifyContent: "center", padding: "0.5rem 1rem", fontSize: "0.8rem", backgroundColor: isCompleted ? "rgba(46, 98, 60, 0.15)" : undefined, color: isCompleted ? "var(--success)" : undefined }}>
+                            {isCompleted ? "✅ Completed & On Shelf" : "Currently Registered"}
+                          </span>
+                          <Link to="/student/dashboard" className="btn btn-secondary" style={{ width: "100%" }}>Open Personal Shelf</Link>
+                        </div>
+                      );
+                    }
+                    if (enrollmentStatus === "CANCELLED") {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                          <span className="badge badge-cancelled" style={{ justifyContent: "center", padding: "0.5rem 1rem", fontSize: "0.8rem" }}>
+                            Enrollment Cancelled
+                          </span>
+                          <button onClick={handleEnrollClick} className="btn btn-primary" style={{ width: "100%" }} disabled={enrolling}>
+                            {enrolling ? "Registering..." : "Re-enroll Vol."}
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
                       <button onClick={handleEnrollClick} className="btn btn-primary" style={{ width: "100%" }} disabled={enrolling}>
-                        {enrolling ? "Registering..." : "Re-enroll Vol."}
+                        {enrolling ? "Registering..." : "Enroll Now"}
                       </button>
-                    </div>
-                  ) : (
-                    <button onClick={handleEnrollClick} className="btn btn-primary" style={{ width: "100%" }} disabled={enrolling}>
-                      {enrolling ? "Registering..." : "Enroll Now"}
-                    </button>
-                  )
-                ) : user.role === "INSTRUCTOR" ? (
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.85rem", display: "block", textAlign: "center", fontWeight: "600" }}>
-                    Instructors cannot register in volumes.
-                  </span>
-                ) : (
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.85rem", display: "block", textAlign: "center", fontWeight: "600" }}>
-                    Administrators cannot register in volumes.
-                  </span>
-                )}
+                    );
+                  }
+
+                  if (user.role === "INSTRUCTOR" || user.role === "ADMIN") {
+                    const isOwner = (user.userId || user.id) === course.instructorId || user.role === "ADMIN";
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                        <span className="badge badge-active" style={{ justifyContent: "center", padding: "0.5rem 1rem", fontSize: "0.8rem", backgroundColor: "rgba(46, 98, 60, 0.12)", color: "var(--success)" }}>
+                          👨‍🏫 Faculty Access (Unlocked)
+                        </span>
+                        {isOwner && (
+                          <Link
+                            to={`/instructor/edit-course/${course.id}`}
+                            className="btn btn-secondary"
+                            style={{ width: "100%", display: "inline-flex", justifyContent: "center", alignItems: "center", gap: "0.5rem" }}
+                          >
+                            ✏️ Edit Course Volume
+                          </Link>
+                        )}
+                        <Link
+                          to="/instructor/dashboard"
+                          className="btn btn-primary"
+                          style={{ width: "100%", display: "inline-flex", justifyContent: "center", alignItems: "center", gap: "0.5rem" }}
+                        >
+                          📚 Back to My Uploaded Courses
+                        </Link>
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })()}
               </div>
             </div>
           </div>
