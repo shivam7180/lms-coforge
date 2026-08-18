@@ -9,6 +9,16 @@ export const getDocIcon = (filename = "") => {
   return "📑";
 };
 
+export const resolveMediaUrl = (url) => {
+  if (!url) return "";
+  const trimmed = url.trim();
+  const baseUrl = (typeof import.meta !== "undefined" && (import.meta.env?.VITE_API_BASE_URL || import.meta.env?.VITE_API_URL)) || "http://localhost:8080";
+  if (trimmed.startsWith("/api/")) {
+    return `${baseUrl.replace(/\/$/, "")}${trimmed}`;
+  }
+  return trimmed;
+};
+
 export const getEmbedUrl = (url) => {
   if (!url) return null;
   const trimmed = url.trim();
@@ -35,7 +45,7 @@ export const getEmbedUrl = (url) => {
   if (trimmed.includes("/api/courses/files/") || /\.(mp4|webm|ogg|mov|mkv|m4v|avi|ts|flv)(\?.*)?$/i.test(trimmed)) {
     return {
       type: "video",
-      src: trimmed
+      src: resolveMediaUrl(trimmed)
     };
   }
 
@@ -434,7 +444,7 @@ const CourseMediaViewer = ({
                         </div>
                       </div>
                       <a
-                        href={doc.fileUrl}
+                        href={resolveMediaUrl(doc.fileUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn btn-secondary btn-sm"
