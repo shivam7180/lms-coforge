@@ -56,17 +56,17 @@ Ensure MySQL is running on port 3306. Execute the setup script:
 ```bash
 mysql -u root -p -e "source database/init.sql"
 ```
-*(The default MySQL password on this machine is `shivam07`)*.
+*(The default MySQL password is configured in the .env file. Please use your own local MySQL credentials.)*.
 
 ### 2. Configure Environment
 Create a `.env` file in the root folder (or copy `.env.example`):
 ```env
-DB_HOST=localhost
-DB_PORT=3306
-DB_USERNAME=root
-DB_PASSWORD=shivam07
-JWT_SECRET=bXlWZXJ5TG9uZ1NlY3JldEtleUZvckpXVFRva2VuR2VuZXJhdGlvblRoYXRJc0F0TGVhc3QyNTZCaXRzTG9uZzIwMjRMTVM=
-JWT_EXPIRATION=86400000
+DB_HOST=Make your own secret key
+DB_PORT=Make your own secret key
+DB_USERNAME=Make your own secret key
+DB_PASSWORD=Make your own secret key
+JWT_SECRET=Make your own secret key
+JWT_EXPIRATION=Make your own secret key
 ```
 
 ### 3. Build & Start the Backend
