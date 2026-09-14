@@ -11,7 +11,11 @@ import lombok.*;
 public class RegisterRequest {
 
     @NotBlank(message = "Full name is required")
-    @Size(min = 2, max = 100, message = "Full name must be between 2 and 100 characters")
+    @Size(
+        min = 2,
+        max = 100,
+        message = "Full name must be between 2 and 100 characters"
+    )
     private String fullName;
 
     @NotBlank(message = "Email is required")
@@ -19,7 +23,15 @@ public class RegisterRequest {
     private String email;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 6, max = 100, message = "Password must be between 6 and 100 characters")
+    @Size(
+        min = 6,
+        max = 100,
+        message = "Password must be between 6 and 100 characters"
+    )
+    @Pattern(
+        regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&]).+$",
+        message = "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
+    )
     private String password;
 
     @NotBlank(message = "Role is required")
