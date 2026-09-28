@@ -1,13 +1,14 @@
 import React, { useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import authService from "../services/authService";
+import { validateLoginForm } from "../utils/validation";
 
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const from = location.state?.from?.pathname || "/";
@@ -16,11 +17,12 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password) {
-      setError("Please enter email and password.");
+    const validationErrors = validateLoginForm(email, password);
+    if (validationErrors.length > 0) {
+      setErrors(validationErrors);
       return;
     }
-    setError("");
+    setErrors([]);
     setLoading(true);
 
     try {
@@ -42,9 +44,9 @@ const Login = () => {
     } catch (err) {
       setLoading(false);
       if (err.response && err.response.data && err.response.data.message) {
-        setError(err.response.data.message);
+        setErrors([err.response.data.message]);
       } else {
-        setError("Invalid email or password. Please try again.");
+        setErrors(["Invalid email or password. Please try again."]);
       }
     }
   };
@@ -108,13 +110,23 @@ const Login = () => {
             </div>
           )}
 
-          {error && (
+          {errors.length > 0 && (
             <div style={{ backgroundColor: "rgba(185, 28, 28, 0.12)", color: "var(--danger)", padding: "0.75rem 1rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", marginBottom: "1.5rem", border: "1px solid rgba(185, 28, 28, 0.3)" }}>
-              {error}
+              {errors.length === 1 ? (
+                <div>{errors[0]}</div>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
+                  {errors.map((err, idx) => (
+                    <li key={idx} style={{ marginTop: idx > 0 ? "0.25rem" : 0 }}>
+                      {err}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} autoComplete="off" autoCapitalize="off" spellCheck="false">
+          <form onSubmit={handleSubmit} noValidate autoComplete="off" autoCapitalize="off" spellCheck="false">
             {/* Decoy fields to consume aggressive browser autofill */}
             <input type="text" name="chrome_login_decoy_user" style={{ display: "none" }} tabIndex="-1" autoComplete="off" />
             <input type="password" name="chrome_login_decoy_pwd" style={{ display: "none" }} tabIndex="-1" autoComplete="new-password" />
@@ -135,7 +147,7 @@ const Login = () => {
             </div>
 
             <div className="form-group" style={{ marginBottom: "2rem" }}>
-              <label className="form-label" htmlFor="password">Passphrase</label>
+              <label className="form-label" htmlFor="password">Password</label>
               <input
                 type="password"
                 id="password"

@@ -1,28 +1,107 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import authService from "../services/authService";
+import { validateRegisterForm } from "../utils/validation";
+
+const MANDATORY_FIELDS = ["fullName", "email", "password", "role"];
+
+const DEFAULT_PLACEHOLDERS = {
+  fullName: "John Doe",
+  email: "student@lms.com",
+  password: "Choose a secure key",
+  role: "Select scholastic objective *"
+};
 
 const Register = () => {
   const navigate = useNavigate();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("STUDENT");
+  const [role, setRole] = useState("");
   const [bio, setBio] = useState("");
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  const [fieldErrors, setFieldErrors] = useState({
+    fullName: false,
+    email: false,
+    password: false,
+    role: false
+  });
+
+  const isFieldEmpty = (name) => {
+    switch (name) {
+      case "fullName":
+        return !fullName.trim();
+      case "email":
+        return !email.trim();
+      case "password":
+        return !password;
+      case "role":
+        return !role.trim();
+      default:
+        return false;
+    }
+  };
+
+  const handleFieldFocus = (targetField) => {
+    // Clear error on the currently focused field so user can input content
+    if (fieldErrors[targetField]) {
+      setFieldErrors((prev) => ({ ...prev, [targetField]: false }));
+    }
+
+    const targetIndex = MANDATORY_FIELDS.indexOf(targetField);
+    const maxIndex = targetIndex === -1 ? MANDATORY_FIELDS.length : targetIndex;
+
+    const newErrors = {};
+    let changed = false;
+
+    // Check all previous mandatory fields in sequential order:
+    // Full Name -> Email Address -> Password -> Scholastic Objective
+    for (let i = 0; i < maxIndex; i++) {
+      const field = MANDATORY_FIELDS[i];
+      if (isFieldEmpty(field)) {
+        newErrors[field] = true;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      setFieldErrors((prev) => ({ ...prev, ...newErrors }));
+    }
+  };
+
+  const handleFieldBlur = (fieldName) => {
+    if (isFieldEmpty(fieldName)) {
+      setFieldErrors((prev) => ({ ...prev, [fieldName]: true }));
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!fullName || !email || !password || !role) {
-      setError("Please fill in all required fields.");
+
+    // Trigger visual field errors on all empty mandatory fields
+    const emptyErrors = {};
+    let hasEmpty = false;
+    MANDATORY_FIELDS.forEach((f) => {
+      if (isFieldEmpty(f)) {
+        emptyErrors[f] = true;
+        hasEmpty = true;
+      }
+    });
+    if (hasEmpty) {
+      setFieldErrors((prev) => ({ ...prev, ...emptyErrors }));
+    }
+
+    const validationErrors = validateRegisterForm(fullName, email, password, role);
+    if (validationErrors.length > 0) {
+      const mappedErrors = validationErrors.map((err) =>
+        err === "Please enter this field first." ? "Please fill this content first." : err
+      );
+      setErrors(mappedErrors);
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters long.");
-      return;
-    }
-    setError("");
+    setErrors([]);
     setLoading(true);
 
     try {
@@ -38,9 +117,9 @@ const Register = () => {
     } catch (err) {
       setLoading(false);
       if (err.response && err.response.data && err.response.data.message) {
-        setError(err.response.data.message);
+        setErrors([err.response.data.message]);
       } else {
-        setError("Registration failed. Email might already be in use.");
+        setErrors(["Registration failed. Email might already be in use."]);
       }
     }
   };
@@ -98,13 +177,23 @@ const Register = () => {
             Register to build your digital shelf and track your scholastic journey.
           </p>
 
-          {error && (
+          {errors.length > 0 && (
             <div style={{ backgroundColor: "rgba(185, 28, 28, 0.12)", color: "var(--danger)", padding: "0.75rem 1rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", marginBottom: "1.5rem", border: "1px solid rgba(185, 28, 28, 0.3)" }}>
-              {error}
+              {errors.length === 1 ? (
+                <div>{errors[0]}</div>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
+                  {errors.map((err, idx) => (
+                    <li key={idx} style={{ marginTop: idx > 0 ? "0.25rem" : 0 }}>
+                      {err}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} autoComplete="off" autoCapitalize="off" spellCheck="false">
+          <form onSubmit={handleSubmit} noValidate autoComplete="off" autoCapitalize="off" spellCheck="false">
             {/* Decoy fields to consume aggressive browser autofill */}
             <input type="text" name="chrome_decoy_user" style={{ display: "none" }} tabIndex="-1" autoComplete="off" />
             <input type="password" name="chrome_decoy_pwd" style={{ display: "none" }} tabIndex="-1" autoComplete="new-password" />
@@ -115,10 +204,17 @@ const Register = () => {
                 type="text"
                 id="fullName"
                 name="reg_user_fullname"
-                className="form-input"
-                placeholder="John Doe"
+                className={`form-input ${fieldErrors.fullName ? "input-error" : ""}`}
+                placeholder={fieldErrors.fullName ? "Please fill this content first." : DEFAULT_PLACEHOLDERS.fullName}
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onFocus={() => handleFieldFocus("fullName")}
+                onBlur={() => handleFieldBlur("fullName")}
+                onChange={(e) => {
+                  setFullName(e.target.value);
+                  if (fieldErrors.fullName && e.target.value.trim()) {
+                    setFieldErrors((prev) => ({ ...prev, fullName: false }));
+                  }
+                }}
                 autoComplete="off"
                 required
               />
@@ -130,25 +226,39 @@ const Register = () => {
                 type="email"
                 id="email"
                 name="reg_user_email"
-                className="form-input"
-                placeholder="student@lms.com"
+                className={`form-input ${fieldErrors.email ? "input-error" : ""}`}
+                placeholder={fieldErrors.email ? "Please fill this content first." : DEFAULT_PLACEHOLDERS.email}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onFocus={() => handleFieldFocus("email")}
+                onBlur={() => handleFieldBlur("email")}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email && e.target.value.trim()) {
+                    setFieldErrors((prev) => ({ ...prev, email: false }));
+                  }
+                }}
                 autoComplete="off"
                 required
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="password">Passphrase * (min 6 chars)</label>
+              <label className="form-label" htmlFor="password">Password * (min 6 chars)</label>
               <input
                 type="password"
                 id="password"
                 name="reg_user_password"
-                className="form-input"
-                placeholder="Choose a secure key"
+                className={`form-input ${fieldErrors.password ? "input-error" : ""}`}
+                placeholder={fieldErrors.password ? "Please fill this content first." : DEFAULT_PLACEHOLDERS.password}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => handleFieldFocus("password")}
+                onBlur={() => handleFieldBlur("password")}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password && e.target.value) {
+                    setFieldErrors((prev) => ({ ...prev, password: false }));
+                  }
+                }}
                 autoComplete="new-password"
                 required
               />
@@ -158,12 +268,26 @@ const Register = () => {
               <label className="form-label" htmlFor="role">Scholastic Objective *</label>
               <select
                 id="role"
-                className="form-input"
-                style={{ backgroundColor: "var(--bg-primary)", cursor: "pointer" }}
+                className={`form-input ${fieldErrors.role ? "input-error" : ""}`}
+                style={{
+                  backgroundColor: "var(--bg-primary)",
+                  cursor: "pointer",
+                  color: !role ? (fieldErrors.role ? "var(--danger)" : "var(--text-muted)") : "inherit"
+                }}
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                onFocus={() => handleFieldFocus("role")}
+                onBlur={() => handleFieldBlur("role")}
+                onChange={(e) => {
+                  setRole(e.target.value);
+                  if (fieldErrors.role && e.target.value.trim()) {
+                    setFieldErrors((prev) => ({ ...prev, role: false }));
+                  }
+                }}
                 required
               >
+                <option value="" disabled hidden>
+                  {fieldErrors.role ? "Please fill this content first." : DEFAULT_PLACEHOLDERS.role}
+                </option>
                 <option value="STUDENT">Learn (Student Scholar)</option>
                 <option value="INSTRUCTOR">Instruct (Academic Author)</option>
               </select>
@@ -177,6 +301,7 @@ const Register = () => {
                 style={{ height: "70px", resize: "none" }}
                 placeholder="Describe your fields of study or background..."
                 value={bio}
+                onFocus={() => handleFieldFocus("bio")}
                 onChange={(e) => setBio(e.target.value)}
               />
             </div>
@@ -196,6 +321,16 @@ const Register = () => {
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
+        .input-error {
+          border-color: var(--danger, #b91c1c) !important;
+          background-color: rgba(185, 28, 28, 0.05) !important;
+          box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.2) !important;
+        }
+        .input-error::placeholder {
+          color: var(--danger, #b91c1c) !important;
+          font-weight: 500;
+          opacity: 0.95;
+        }
         @media (max-width: 768px) {
           .hide-mobile {
             display: none !important;
